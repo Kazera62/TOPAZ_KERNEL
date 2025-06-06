@@ -34,16 +34,6 @@ jobs:
           rm clang/clang.tar.gz
           echo "$PWD/clang/bin" >> $GITHUB_PATH
 
-      - name: Setup swap (25G)
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 25
-
-      - name: Tune Swap
-        run: |
-          echo "vm.swappiness=80" | sudo tee -a /etc/sysctl.conf
-          sudo sysctl -p
-
       - name: Set localversion di defconfig
         run: |
           echo 'CONFIG_LOCALVERSION="${{ env.localVersion }}"' >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
@@ -89,14 +79,6 @@ jobs:
           name: ${{ env.ZIP_NAME }}
           path: ./${{ env.ZIP_NAME }}
           retention-days: 7
-
-      - name: Upload ZIP to GitHub Release
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: ./${{ env.ZIP_NAME }}
-          tag_name: "YASK"
 
       - name: Kirim ke Telegram (jika secrets sudah ada)
         if: always()
