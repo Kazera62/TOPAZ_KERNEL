@@ -1,1 +1,107 @@
+name: "Custom Build Kernel"
 
+on:
+  workflow_dispatch:
+    inputs:
+      clang_package:
+        description: 'Clang Package (ZyC/Proton/azure/other)'
+        required: false
+        default: 'ZyC'
+      defconfig:
+        description: 'Defconfig name (ex: whyred_defconfig)'
+        required: false
+        default: 'gki_defconfig'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache flex git libssl-dev \
+            libncurses5-dev libncursesw5-dev lzop python3 unzip zip wget \
+            libelf-dev libdw-dev libbfd-dev liblz4-tool llvm binutils \
+            python3-setuptools
+
+      - name: Fix script permissions
+        run: |
+          find scripts/ -type f -exec chmod +x {} \; || true
+
+      - name: Download Clang Toolchain (Flexible Package)
+        run: |
+          if [[ "${{ github.event.inputs.clang_package }}" == "ZyC" ]]; then
+            clang_url=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep browser_download_url | grep "tar.gz" | cut -d '"' -f 4 | head -n 1)
+          elif [[ "${{ github.event.inputs.clang_package }}" == "Proton" ]]; then
+            clang_url=$(curl -s https://api.github.com/repos/kdrag0n/proton-clang/releases/latest | grep browser_download_url | grep "tar.xz" | cut -d '"' -f 4 | head -n 1)
+          elif [[ "${{ github.event.inputs.clang_package }}" == "azure" ]]; then
+            clang_url=$(curl -s https://api.github.com/repos/ClangBuiltLinux/continuous-integration/releases/latest | grep browser_download_url | grep "clang-" | grep "tar.xz" | cut -d '"' -f 4 | head -n 1)
+          else
+            # Default ZyC
+            clang_url=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep browser_download_url | grep "tar.gz" | cut -d '"' -f 4 | head -n 1)
+          fi
+          mkdir clang
+          wget -O clang/clang.tar.* "$clang_url"
+          tar -xf clang/clang.tar.* -C clang
+          echo "$PWD/clang/bin" >> $GITHUB_PATH
+
+      - name: Generate .config & set localversion
+        run: |
+          export PATH=$PWD/clang/bin:$PATH
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          make O=out ${{ github.event.inputs.defconfig }}
+          echo 'CONFIG_LOCALVERSION="-KazeraBuild"' >> out/.config
+          make O=out olddefconfig
+
+      - name: Build Kernel
+        run: |
+          export PATH=$PWD/clang/bin:$PATH
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+
+      - name: List Kernel Output Files (Debug)
+        run: |
+          ls -lh out/arch/arm64/boot/ || true
+          ls -lh out/ || true
+
+      - name: Clone AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
+
+      - name: Copy Kernel Image
+        run: |
+          cp out/arch/arm64/boot/Image* AnyKernel3/ || (echo "File Image tidak ditemukan!" && exit 1)
+
+      - name: Zip Flashable Kernel
+        run: |
+          cd AnyKernel3
+          zip -r9 ${{ github.event.inputs.defconfig }}_KazeraKernel.zip ./*
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kazera_Flashable_Kernel
+          path: AnyKernel3/${{ github.event.inputs.defconfig }}_KazeraKernel.zip
+
+      - name: Send to Telegram
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          FILE="AnyKernel3/${{ github.event.inputs.defconfig }}_KazeraKernel.zip"
+          CAPTION="✅ Build Sukses: ${{ github.event.inputs.defconfig }}%0ARepo: ${{ github.repository }}%0ABranch: ${{ github.ref_name }}%0ABy: ${{ github.actor }}"
+          curl -F document=@"$FILE" -F chat_id="$TELEGRAM_CHAT_ID" -F caption="$CAPTION" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
