@@ -24,7 +24,7 @@ jobs:
     env:
       kernelDir: common_gki
       kernelName: common
-      kernelRepo: https://github.com/Kazera62/TOPAZ_KERNEL
+      kernelRepo: Kazera62/TOPAZ_KERNEL
       kernelBranch: kernel.lnx.5.15.r1-rel
       kernelDevice: gki
       DEFCONFIG_NAME: gki_defconfig
