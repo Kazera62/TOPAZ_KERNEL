@@ -42,15 +42,22 @@ jobs:
         run: |
           make O=${{ env.OUT_DIR }} ${{ env.DEFCONFIG_NAME }}
 
-      - name: Build kernel
+      - name: "🎶 Build kernel"
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        env:
+          args: ${{ steps.generate-args.outputs.args }}
         run: |
-          export PATH=$PWD/clang/bin:$PATH
-          make -j$(nproc) O=${{ env.OUT_DIR }} \
-            ARCH=arm64 LLVM=1 LTO=thin \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
+          export KBUILD_BUILD_USER="Automated"
+          export KBUILD_BUILD_HOST="GitHub-Actions"
+          make ${{ env.args }} \
+            LLVM=1 \
+            LTO=thin \
+            CC=clang \
             AR=llvm-ar \
-            CC=clang
+            NM=llvm-nm \
+            OBJCOPY="llvm-objcopy" \
+            STRIP="llvm-strip" \
+            -j$(nproc --all)
 
       - name: Clone AnyKernel3
         run: |
