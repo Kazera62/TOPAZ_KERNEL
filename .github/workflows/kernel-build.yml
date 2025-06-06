@@ -1,21 +1,18 @@
-name: "Custom Build Kernel"
+name: "YASK CLO Kernel Build"
 
 on:
   workflow_dispatch:
-    inputs:
-      clang_package:
-        description: 'Clang Package (ZyC/Proton/azure/other)'
-        required: false
-        default: 'ZyC'
-      defconfig:
-        description: 'Defconfig name (ex: whyred_defconfig)'
-        required: false
-        default: 'gki_defconfig'   # Sudah diganti di sini
+  schedule:
+    - cron: '0 0 * * *'
+
+env:
+  OUT_DIR: "out"
+  DEFCONFIG_NAME: "gki_defconfig"
+  localVersion: "-YASK/CLO"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout kernel source
         uses: actions/checkout@v4
@@ -23,86 +20,148 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache flex git libssl-dev \
-            libncurses5-dev libncursesw5-dev lzop python3 unzip zip wget \
-            libelf-dev libdw-dev libbfd-dev liblz4-tool llvm binutils \
-            python3-setuptools
+          sudo apt-get install -y build-essential bc curl flex cpio rsync git zip dwarves libelf-dev gcc-aarch64-linux-gnu libssl-dev python3 clang lld llvm llvm-dev
 
-      - name: Fix script permissions
+      - name: Download Clang Toolchain
         run: |
-          find scripts/ -type f -exec chmod +x {} \; || true
-
-      - name: Download Clang Toolchain (Flexible Package)
-        run: |
-          if [[ "${{ github.event.inputs.clang_package }}" == "ZyC" ]]; then
-            clang_url=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep browser_download_url | grep "tar.gz" | cut -d '"' -f 4 | head -n 1)
-          elif [[ "${{ github.event.inputs.clang_package }}" == "Proton" ]]; then
-            clang_url=$(curl -s https://api.github.com/repos/kdrag0n/proton-clang/releases/latest | grep browser_download_url | grep "tar.xz" | cut -d '"' -f 4 | head -n 1)
-          elif [[ "${{ github.event.inputs.clang_package }}" == "azure" ]]; then
-            clang_url=$(curl -s https://api.github.com/repos/ClangBuiltLinux/continuous-integration/releases/latest | grep browser_download_url | grep "clang-" | grep "tar.xz" | cut -d '"' -f 4 | head -n 1)
-          else
-            # Default ZyC
-            clang_url=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep browser_download_url | grep "tar.gz" | cut -d '"' -f 4 | head -n 1)
-          fi
-          mkdir clang
-          wget -O clang/clang.tar.* "$clang_url"
-          tar -xf clang/clang.tar.* -C clang
+          latest_url=$(curl -sL "https://api.github.com/repos/greenforce-project/greenforce_clang/releases/latest" | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
+          mkdir -p clang
+          wget --progress=bar:force -O "clang/clang.tar.gz" "$latest_url"
+          tar -xf clang/clang.tar.gz -C clang
+          rm -f clang/clang.tar.gz
           echo "$PWD/clang/bin" >> $GITHUB_PATH
 
-      - name: Generate .config & set localversion
-        run: |
-          export PATH=$PWD/clang/bin:$PATH
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CC=clang
-          make O=out ${{ github.event.inputs.defconfig }}
-          echo 'CONFIG_LOCALVERSION="-KazeraBuild"' >> out/.config
-          yes "" | make O=out olddefconfig
+      - name: Setup swap (25G)
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 25
 
-      - name: Build Kernel
+      - name: Tune Swap
+        run: |
+          echo "vm.swappiness=80" | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -p
+
+      - name: Setup localversion & configs
+        run: |
+          echo 'CONFIG_LOCALVERSION="${{ env.localVersion }}"' >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
+
+      - name: Apply GKI fixup patch
+        run: |
+          PATCH_URL="https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
+          PATCH_FILE="0001-gki-fixup.patch"
+          curl -L -o "$PATCH_FILE" "$PATCH_URL"
+          [ -f "$PATCH_FILE" ] && patch -p1 < "$PATCH_FILE"
+
+      - name: Apply SUSFS & Kernel tweaks
+        run: |
+          PATCH_URLS=(
+            "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-fs-lineageos-disguise.patch"
+            "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-Implement-SUSFS-v1.5.7-syscall-hooks.patch"
+          )
+          for PATCH_URL in "${PATCH_URLS[@]}"; do
+            PATCH_FILE=$(basename "$PATCH_URL")
+            curl -L -o "$PATCH_FILE" "$PATCH_URL"
+            [ -f "$PATCH_FILE" ] && patch -p1 < "$PATCH_FILE"
+          done
+
+      - name: Update KernelSU
+        run: |
+          [ -d "./KernelSU" ] && rm -rf "./KernelSU"
+          [ -d "./drivers/kernelsu" ] && rm -rf "./drivers/kernelsu"
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-stable
+
+      - name: Add SUSFS configs
+        run: |
+          CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          CONFIGS=(
+            "CONFIG_KSU=y" 
+            "CONFIG_KSU_MANUAL_HOOKS=y" 
+            "CONFIG_KPM=y"
+            "CONFIG_KALLSYMS=y" 
+            "CONFIG_KSU_WITH_KPROBES=n" 
+            "CONFIG_KSU_SUSFS=y"
+            "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y"
+            "CONFIG_KSU_SUSFS_SUS_PATH=y"
+            "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+            "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y"
+            "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y"
+            "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
+            "CONFIG_KSU_SUSFS_TRY_UMOUNT=y"
+            "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y"
+            "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+            "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
+            "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
+            "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
+            "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
+            "CONFIG_KSU_SUSFS_SUS_SU=n"
+            "CONFIG_TMPFS_XATTR=y"
+            "CONFIG_TMPFS_POSIX_ACL=y"
+          )
+          printf "%s\n" "${CONFIGS[@]}" >> "$CONFIG_FILE"
+
+      - name: Append custom Makefile line
+        run: |
+          echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' >> Makefile
+
+      - name: Generate defconfig
+        run: |
+          make O=out ${{ env.DEFCONFIG_NAME }}
+
+      - name: Build kernel
         run: |
           export PATH=$PWD/clang/bin:$PATH
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CC=clang
-          yes "" | make -j$(nproc) O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
+          make -j$(nproc) O=out \
+            ARCH=arm64 LLVM=1 LTO=thin \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            AR=llvm-ar \
+            CC=clang
 
-      - name: List Kernel Output Files (Debug)
+      - name: Patch Image with KPM
         run: |
-          ls -lh out/arch/arm64/boot/ || true
-          ls -lh out/ || true
+          cd out/arch/arm64/boot/
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+          chmod +x patch
+          ./patch
+          rm -rf Image
+          mv oImage Image
 
-      - name: Clone AnyKernel3
+      - name: Pack AnyKernel3
         run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
-
-      - name: Copy Kernel Image
-        run: |
-          cp out/arch/arm64/boot/Image* AnyKernel3/ || (echo "File Image tidak ditemukan!" && exit 1)
-
-      - name: Zip Flashable Kernel
-        run: |
+          [ ! -d "AnyKernel3" ] && git clone https://github.com/topnotchfreaks/AnyKernel3.git --depth=1
+          KERNEL_IMAGE_PATH="out/arch/arm64/boot/Image"
+          [ -f "$KERNEL_IMAGE_PATH" ] || KERNEL_IMAGE_PATH=$(find out/arch/arm64/boot -name "Image*" | head -n 1)
+          [ -z "$KERNEL_IMAGE_PATH" ] && { echo "Error: No kernel image found"; exit 1; }
+          cp "$KERNEL_IMAGE_PATH" AnyKernel3/Image
+          KERNEL_VERSION=$(make kernelversion)
+          BUILD_DATE=$(date +'%Y-%m-%d')
+          ZIP_NAME="Anykernel3_YASK-CLO-${KERNEL_VERSION}-${BUILD_DATE}.zip"
           cd AnyKernel3
-          zip -r9 ${{ github.event.inputs.defconfig }}_KazeraKernel.zip ./*
+          zip -r9 "../$ZIP_NAME" * -x .git/*
+          cd ..
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
-      - name: Upload Artifact
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Kazera_Flashable_Kernel
-          path: AnyKernel3/${{ github.event.inputs.defconfig }}_KazeraKernel.zip
+          name: ${{ env.ZIP_NAME }}
+          path: ./${{ env.ZIP_NAME }}
+          retention-days: 7
 
-      - name: Send to Telegram
-        if: success()
+      - name: Upload ZIP to GitHub Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ./${{ env.ZIP_NAME }}
+          tag_name: "YASK"
+
+      - name: Send ZIP to Telegram
+        if: always()
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          FILE="AnyKernel3/${{ github.event.inputs.defconfig }}_KazeraKernel.zip"
-          CAPTION="✅ Build Sukses: ${{ github.event.inputs.defconfig }}%0ARepo: ${{ github.repository }}%0ABranch: ${{ github.ref_name }}%0ABy: ${{ github.actor }}"
-          curl -F document=@"$FILE" -F chat_id="$TELEGRAM_CHAT_ID" -F caption="$CAPTION" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
+          if [ -f "${{ env.ZIP_NAME }}" ]; then
+            curl -F document=@"${{ env.ZIP_NAME }}" -F chat_id="$TELEGRAM_CHAT_ID" -F caption="✅ Build Sukses: ${{ env.ZIP_NAME }}" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
+          fi
