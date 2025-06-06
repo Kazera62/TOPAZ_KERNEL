@@ -25,7 +25,7 @@ jobs:
       kernelDir: common_gki
       kernelName: common
       kernelRepo: Kazera62/TOPAZ_KERNEL
-      kernelBranch: kernel.lnx.5.15.r1-rel
+      kernelBranch: main
       kernelDevice: gki
       DEFCONFIG_NAME: gki_defconfig
       OUT_DIR: "out"
