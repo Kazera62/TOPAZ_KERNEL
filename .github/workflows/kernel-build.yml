@@ -52,52 +52,12 @@ jobs:
           curl -L -o "$PATCH_FILE" "$PATCH_URL"
           [ -f "$PATCH_FILE" ] && patch -p1 < "$PATCH_FILE"
 
-      - name: Apply SUSFS & Kernel tweaks
+      - name: Apply tweaks patch
         run: |
-          PATCH_URLS=(
-            "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-fs-lineageos-disguise.patch"
-            "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-Implement-SUSFS-v1.5.7-syscall-hooks.patch"
-          )
-          for PATCH_URL in "${PATCH_URLS[@]}"; do
-            PATCH_FILE=$(basename "$PATCH_URL")
-            curl -L -o "$PATCH_FILE" "$PATCH_URL"
-            [ -f "$PATCH_FILE" ] && patch -p1 < "$PATCH_FILE"
-          done
-
-      - name: Update KernelSU
-        run: |
-          [ -d "./KernelSU" ] && rm -rf "./KernelSU"
-          [ -d "./drivers/kernelsu" ] && rm -rf "./drivers/kernelsu"
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-stable
-
-      - name: Add SUSFS configs
-        run: |
-          CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          CONFIGS=(
-            "CONFIG_KSU=y" 
-            "CONFIG_KSU_MANUAL_HOOKS=y" 
-            "CONFIG_KPM=y"
-            "CONFIG_KALLSYMS=y" 
-            "CONFIG_KSU_WITH_KPROBES=n" 
-            "CONFIG_KSU_SUSFS=y"
-            "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y"
-            "CONFIG_KSU_SUSFS_SUS_PATH=y"
-            "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
-            "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y"
-            "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y"
-            "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
-            "CONFIG_KSU_SUSFS_TRY_UMOUNT=y"
-            "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y"
-            "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
-            "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
-            "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
-            "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
-            "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
-            "CONFIG_KSU_SUSFS_SUS_SU=n"
-            "CONFIG_TMPFS_XATTR=y"
-            "CONFIG_TMPFS_POSIX_ACL=y"
-          )
-          printf "%s\n" "${CONFIGS[@]}" >> "$CONFIG_FILE"
+          PATCH_URL="https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-fs-lineageos-disguise.patch"
+          PATCH_FILE=$(basename "$PATCH_URL")
+          curl -L -o "$PATCH_FILE" "$PATCH_URL"
+          [ -f "$PATCH_FILE" ] && patch -p1 < "$PATCH_FILE"
 
       - name: Append custom Makefile line
         run: |
@@ -116,15 +76,6 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             AR=llvm-ar \
             CC=clang
-
-      - name: Patch Image with KPM
-        run: |
-          cd out/arch/arm64/boot/
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
-          chmod +x patch
-          ./patch
-          rm -rf Image
-          mv oImage Image
 
       - name: Pack AnyKernel3
         run: |
