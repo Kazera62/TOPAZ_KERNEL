@@ -10,7 +10,7 @@ on:
       defconfig:
         description: 'Defconfig name (ex: whyred_defconfig)'
         required: false
-        default: 'gki_defconfig'
+        default: 'gki_defconfig'   # Sudah diganti di sini
 
 jobs:
   build:
@@ -58,7 +58,7 @@ jobs:
           export CC=clang
           make O=out ${{ github.event.inputs.defconfig }}
           echo 'CONFIG_LOCALVERSION="-KazeraBuild"' >> out/.config
-          make O=out olddefconfig
+          yes "" | make O=out olddefconfig
 
       - name: Build Kernel
         run: |
@@ -66,7 +66,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CC=clang
-          make -j$(nproc) O=out \
+          yes "" | make -j$(nproc) O=out \
             ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -98,6 +98,7 @@ jobs:
           path: AnyKernel3/${{ github.event.inputs.defconfig }}_KazeraKernel.zip
 
       - name: Send to Telegram
+        if: success()
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
