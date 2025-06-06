@@ -42,6 +42,27 @@ jobs:
         run: |
           make O=${{ env.OUT_DIR }} ${{ env.DEFCONFIG_NAME }}
 
+      - name: "🧩 Apply Kernel Fixup Patch"
+        working-directory: ./${{ env.kernelDir }}/$.         {{ env.kernelName }}
+        run: |
+          set -ex
+          log() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+          }
+          apply_patch() {
+            local patch="$1"
+            log "Applying patch: $(basename "$patch")"
+            if ! patch -p1 < "$patch"; then
+              log "Warning: Some hunks failed in $(basename "$patch")"
+            fi
+          }
+          PATCH_URL="https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
+          PATCH_FILE="0001-gki-fixup.patch"
+          curl -L -o "$PATCH_FILE" "$PATCH_URL"
+          [ -f "$PATCH_FILE" ] || { log "Patch download failed"; exit 1; }
+          apply_patch "$PATCH_FILE"
+          log "✅ External patch applied"
+
       - name: "🎶 Build kernel"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         env:
