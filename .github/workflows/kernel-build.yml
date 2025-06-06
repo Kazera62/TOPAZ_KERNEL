@@ -52,11 +52,7 @@ jobs:
             printf "%s" "$latest_url"
           }
           clang_url=$(get_latest_github_release "greenforce-project/greenforce_clang")
-          echo "✅ Clang URL: $clang_url"
-          mkdir -p clang
-          if [[ "$clang_url" == *.tar.gz ]]; then
-            echo "🚀 Downloading latest Clang..."
-            wget --progress=bar:force -O "clang/clang.tar.gz" "$clang_url" || { echo "❌ Failed to download Clang!"; exit 1; }
+          echo "✅ Clang URL:.tar.gz" "$clang_url" || { echo "❌ Failed to download Clang!"; exit 1; }
             echo "📦 Extracting Clang..."
             tar -xf clang/clang.tar.gz -C clang || { echo "❌ Extraction failed!"; exit 1; }
             rm -f clang/clang.tar.gz
@@ -94,7 +90,7 @@ jobs:
         run: |
           echo 'CONFIG_LOCALVERSION="${{ env.localVersion }}"' >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
 
-      # ... PATCH STEPS TIDAK DIUBAH ...
+      # (Tambahkan PATCH, TWEAK, atau step lain di sini sesuai kebutuhan)
 
       - name: "👍 Make defconfig"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
@@ -113,7 +109,7 @@ jobs:
             CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy STRIP=llvm-strip \
             -j$(nproc --all)
 
-      # ... STEP PATCH IMAGE, PACK ANYKERNEL3, DAN UPLOAD ARTIFACT TETAP ...
+      # (Tambah step packing AnyKernel3, patch image, dsb, jika perlu)
 
       - name: "⬆️ Upload Kernel Artifact"
         uses: actions/upload-artifact@v4
